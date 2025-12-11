@@ -110,6 +110,30 @@ Unityフレームワーク使用。`test/` 配下にライブラリ対応のテ�
 
 テスト仕様は `documents/test_specifications.md` を参照。
 
+### TDD開発ルール
+
+**重要: テスト実行後は必ず結果をユーザーに提示すること**
+
+1. テストコードを書いたら `pio test -e native` を実行
+2. 実行結果（成功/失敗、テスト名、エラー内容）を必ずユーザーに提示
+3. ユーザーの確認を得てから次のステップに進む
+
+```
+【テスト結果報告フォーマット】
+実行コマンド: pio test -e native -f <テスト名>
+結果: PASSED / FAILED
+テスト数: X tests, Y failures
+
+[失敗時]
+失敗したテスト:
+- test_xxx: 期待値=YYY, 実際=ZZZ
+
+[成功時]
+全テストパス ✓
+```
+
+この手順を省略せず、毎回必ず結果を確認しながら進めること。
+
 ## CI/CD
 
 - **Testワークフロー**: main へのpush/PRで `pio test -e native` と `pio run -e pico` を実行

@@ -72,9 +72,9 @@
 
 | 日付 | タスク |
 |------|--------|
-| 2024-12-11 | architecture.md作成 |
-| 2024-12-11 | CLAUDE.md更新 |
-| 2024-12-11 | test_specifications.md作成 |
-| 2024-12-11 | progress.md作成 |
-| 2024-12-11 | protocol.md作成（リクエスト・レスポンス型通信仕様） |
-| 2024-12-11 | development.md更新 |
+| 2025-12-11 | architecture.md作成 |
+| 2025-12-11 | CLAUDE.md更新 |
+| 2025-12-11 | test_specifications.md作成 |
+| 2025-12-11 | progress.md作成 |
+| 2025-12-11 | protocol.md作成（リクエスト・レスポンス型通信仕様） |
+| 2025-12-11 | development.md更新 |
