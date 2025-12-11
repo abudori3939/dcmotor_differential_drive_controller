@@ -6,16 +6,29 @@
 
 ```
 .
-├── src/                    # メインアプリケーション
-│   └── main.cpp
-├── lib/                    # ライブラリ
-│   ├── CugoSDK/           # ハードウェア制御（Pico専用）
-│   ├── MotorLogic/        # モーター制御ロジック（テスト可能）
-│   └── SerialProtocol/    # 通信プロトコル（テスト可能）
-├── test/                   # ユニットテスト
+├── src/                        # メインアプリケーション
+│   └── main.cpp               # Core0/Core1エントリポイント
+├── lib/                        # ライブラリ
+│   ├── MotorLogic/            # RPMクランプロジック（テスト可能）
+│   ├── SerialProtocol/        # ROS通信プロトコル（テスト可能）
+│   ├── PIDController/         # PID制御（テスト可能）【新規】
+│   ├── QuadratureEncoder/     # 2相エンコーダ読み取り【新規】
+│   ├── MotorDriver/           # PWM+方向出力【新規】
+│   ├── MotorController/       # モータ制御統合【新規】
+│   ├── ConfigStorage/         # Flash設定保存【新規】
+│   └── HardwareConfig/        # ピン定義【新規】
+├── test/                       # ユニットテスト
 │   ├── test_motor_logic/
-│   └── test_serial_protocol/
-└── platformio.ini          # PlatformIO設定
+│   ├── test_serial_protocol/
+│   └── test_pid_controller/   # 【新規】
+├── tools/                      # 開発ツール【新規】
+│   └── config_tool.py         # Python設定ツール
+├── documents/                  # ドキュメント
+│   ├── architecture.md        # アーキテクチャ設計
+│   ├── development.md         # このファイル
+│   ├── test_specifications.md # テスト仕様
+│   └── progress.md            # 実装進捗
+└── platformio.ini              # PlatformIO設定
 ```
 
 ## 環境構築
@@ -37,21 +50,36 @@ pio run -e pico
 # 生成されるファイル: .pio/build/pico/firmware.uf2
 ```
 
-## テスト
+## テスト（TDD）
 
 ```bash
-# ユニットテストを実行（PC上で実行）
+# 全ユニットテストを実行（PC上で実行）
 pio test -e native
+
+# 特定ライブラリのテストのみ実行
+pio test -e native -f test_pid_controller
+pio test -e native -f test_motor_logic
+pio test -e native -f test_serial_protocol
 ```
 
 テストはPC上で実行され、ハードウェアは不要です。
 
-### テスト対象
+### TDD開発フロー
+
+1. `documents/test_specifications.md` でテストケースを確認
+2. `test/test_<ライブラリ名>/` にテストコードを作成
+3. `pio test -e native` でテスト失敗を確認（Red）
+4. `lib/<ライブラリ名>/` に実装コードを作成
+5. `pio test -e native` でテストパスを確認（Green）
+6. 必要に応じてリファクタリング
+
+### テスト対象ライブラリ
 
 | ライブラリ | テスト内容 |
 |-----------|-----------|
-| MotorLogic | RPMクランプ処理、製品ID判定 |
+| MotorLogic | RPMクランプ処理 |
 | SerialProtocol | チェックサム計算、バッファ操作 |
+| PIDController | PID制御演算（P/I/D各項、出力リミット） |
 
 ## 書き込み
 
@@ -61,6 +89,17 @@ pio run -e pico -t upload
 
 # シリアルモニタ
 pio device monitor
+```
+
+## 設定ツール
+
+PIDゲインや最高速度をFlashに書き込むPythonツール。
+
+```bash
+# 使用例（実装後）
+python tools/config_tool.py --port /dev/ttyACM0 --kp 1.0 --ki 0.1 --kd 0.01
+python tools/config_tool.py --port /dev/ttyACM0 --max-rpm 200
+python tools/config_tool.py --port /dev/ttyACM0 --read  # 現在値読み出し
 ```
 
 ## リリース
@@ -91,19 +130,60 @@ git push --tags
 | Test | main へのpush/PR | ユニットテスト + ビルド確認 |
 | Release | `v*` タグpush | ファームウェアビルド + Release作成 |
 
-## ライブラリ構成
+## ライブラリ概要
 
-### CugoSDK
-- Raspberry Pi Pico専用のハードウェア制御
-- モータードライバ（LD-2）との通信
-- エンコーダ値の取得
+### 既存ライブラリ
 
-### MotorLogic
+#### MotorLogic
 - `clamp_rpm_simple()`: 単純なRPM上限クランプ
 - `clamp_rpm_rotation_priority()`: 回転成分を優先したクランプ
-- `check_max_rpm()`: 製品IDに基づく最大RPM取得
 
-### SerialProtocol
+#### SerialProtocol
 - `calculate_checksum()`: パケットのチェックサム計算
 - `write_*_to_buf()` / `read_*_from_buf()`: バッファ操作
 - `create_serial_packet()`: パケット生成
+
+### 新規ライブラリ
+
+#### PIDController
+- `compute()`: PID制御出力計算
+- `setGains()`: ゲイン設定
+- `setOutputLimits()`: 出力リミット設定
+- `reset()`: 積分値リセット
+
+#### QuadratureEncoder
+- `begin()`: 割り込み設定
+- `getCount()`: 累積カウント取得
+- `getRPM()`: RPM計算
+
+#### MotorDriver
+- `begin()`: PWMピン初期化
+- `setSpeed()`: 速度設定（-1.0〜1.0）
+- `stop()`: 停止
+
+#### MotorController
+- `setTargetRPM()`: 目標RPM設定
+- `update()`: 制御ループ実行
+- `getCurrentRPM_L/R()`: 現在RPM取得
+- `getEncoderCount_L/R()`: エンコーダカウント取得
+
+#### ConfigStorage
+- `load()`: Flash読み込み
+- `save()`: Flash書き込み
+- `resetToDefaults()`: 初期値リセット
+
+#### HardwareConfig
+- ピンアサイン定数
+- PWM周波数定数
+- 制御周期定数
+
+## デュアルコア構成
+
+| コア | 処理内容 |
+|------|---------|
+| Core0 | `setup()` / `loop()`: ROS通信、フェイルセーフ、設定モード |
+| Core1 | `setup1()` / `loop1()`: エンコーダ、PID制御、PWM出力 |
+
+コア間データ共有は `SharedMotorData` 構造体 + Mutex。
+
+詳細は `documents/architecture.md` を参照。
