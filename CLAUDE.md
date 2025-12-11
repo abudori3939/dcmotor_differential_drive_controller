@@ -98,7 +98,6 @@ pio device monitor
 5. MotorController - 統合（Core1）
 6. ConfigStorage - Flash設定
 7. main.cpp改修 - デュアルコア化、新プロトコル対応
-8. Python設定ツール
 
 進捗は `documents/progress.md` を参照。
 

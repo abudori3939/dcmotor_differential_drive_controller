@@ -162,48 +162,19 @@ mutex_exit(&motor_mutex);
 | 最高速度 (RPM) | float | 200.0 |
 | エンコーダPPR | uint16_t | 1024 |
 
-### 設定ツールによるFlash書き込み
+### 設定変更方式
 
-Python CLIツールでシリアル経由でパラメータをFlashに書き込む。
+ROS側から `SET_CONFIG` リクエスト（0x04）を送信することで設定をFlashに保存する。
+専用の設定ツールは不要で、ROS 2パッケージから直接設定変更が可能。
 
 #### 動作フロー
 
-1. 設定ツールから特殊コマンド送信 → 設定モードに移行
-2. パラメータをシリアルで受信
+1. ROS側から `SET_CONFIG` リクエスト送信
+2. Picoが設定値を受信・検証
 3. `EEPROM`または`LittleFS`でFlashに永続化
-4. 設定完了後、通常モードに復帰
+4. 結果をレスポンスで返信（成功/失敗）
 
-#### プロトコル案
-
-```
-設定モード開始: [0xFF, 0xFF, 0x01]
-設定データ送信: [command_id(1), data...]
-設定モード終了: [0xFF, 0xFF, 0x00]
-
-command_id:
-  0x01: PIDゲイン設定 (kp: float, ki: float, kd: float)
-  0x02: 最高速度設定 (max_rpm: float)
-  0x03: エンコーダPPR設定 (ppr: uint16_t)
-  0x10: 全設定読み出し
-  0xFF: 設定を初期値にリセット
-```
-
-#### 設定ツール（Python）
-
-```python
-# config_tool.py（概念）
-import serial
-import struct
-
-def set_pid_gains(port, kp, ki, kd):
-    with serial.Serial(port, 115200, timeout=1) as ser:
-        # 設定モード開始
-        ser.write(bytes([0xFF, 0xFF, 0x01]))
-        # PIDゲイン送信
-        ser.write(bytes([0x01]) + struct.pack('<fff', kp, ki, kd))
-        # 設定モード終了
-        ser.write(bytes([0xFF, 0xFF, 0x00]))
-```
+詳細は `documents/protocol.md` の `0x04: SET_CONFIG` を参照。
 
 ## 新規ライブラリ詳細設計
 
@@ -386,7 +357,6 @@ loop():
 5. **MotorController** - 統合（Core1実行）
 6. **ConfigStorage** - Flash設定保存
 7. **main.cpp改修** - デュアルコア構成、CugoSDK削除
-8. **設定ツール** - Python CLI
 
 ## Raspberry Pi Pico固有API（PlatformIO/Arduino）
 

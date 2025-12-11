@@ -21,8 +21,6 @@
 │   ├── test_motor_logic/
 │   ├── test_serial_protocol/
 │   └── test_pid_controller/   # 【新規】
-├── tools/                      # 開発ツール【新規】
-│   └── config_tool.py         # Python設定ツール
 ├── documents/                  # ドキュメント
 │   ├── architecture.md        # アーキテクチャ設計
 │   ├── development.md         # このファイル
@@ -91,16 +89,12 @@ pio run -e pico -t upload
 pio device monitor
 ```
 
-## 設定ツール
+## 設定変更
 
-PIDゲインや最高速度をFlashに書き込むPythonツール。
+PIDゲインや最高速度等の設定は、ROS側から `SET_CONFIG` リクエスト（0x04）を送信することでFlashに保存される。
+専用の設定ツールは不要で、ROS 2パッケージから直接設定変更が可能。
 
-```bash
-# 使用例（実装後）
-python tools/config_tool.py --port /dev/ttyACM0 --kp 1.0 --ki 0.1 --kd 0.01
-python tools/config_tool.py --port /dev/ttyACM0 --max-rpm 200
-python tools/config_tool.py --port /dev/ttyACM0 --read  # 現在値読み出し
-```
+詳細は `documents/protocol.md` の `0x04: SET_CONFIG` を参照。
 
 ## リリース
 

@@ -51,8 +51,7 @@
 | タスク | ステータス | 備考 |
 |--------|----------|------|
 | ConfigStorage実装 | ⬜ | Flash読み書き |
-| GET/SET_CONFIG実装 | ⬜ | protocol.md参照 |
-| Python設定ツール | ⬜ | tools/config_tool.py |
+| GET/SET_CONFIG実装 | ⬜ | protocol.md参照、ROS経由で設定変更 |
 
 ### Phase 6: クリーンアップ
 
