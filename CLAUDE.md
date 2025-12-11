@@ -149,3 +149,46 @@ Unityフレームワーク使用。`test/` 配下にライブラリ対応のテ�
 | GPIO割り込み | `attachInterrupt()` |
 | PWM | `analogWriteFreq()` + `analogWrite()` |
 | Flash保存 | `EEPROM` または `LittleFS` |
+
+## コーディング規約
+
+### 言語
+
+- **コメント**: 日本語で記載
+- **ログ出力**: 日本語で記載
+- **ドキュメント**: 日本語
+
+### 命名規則（Arduinoスタイル）
+
+| 対象 | 規則 | 例 |
+|------|------|-----|
+| クラス・構造体 | パスカルケース | `MotorRpm`, `PidController` |
+| 関数・メソッド | キャメルケース | `getCount()`, `setGains()`, `computeOutput()` |
+| 変数 | キャメルケース | `targetRpm`, `maxSpeed`, `encoderCount` |
+| 定数(#define) | 大文字スネークケース | `SERIAL_HEADER_SIZE`, `MAX_RPM` |
+| constexpr定数 | 大文字スネークケース | `PWM_FREQUENCY`, `CONTROL_PERIOD_US` |
+| namespace | パスカルケース | `HardwareConfig`, `Defaults` |
+| プライベートメンバ | 末尾アンダースコア | `kp_`, `integral_`, `prevError_` |
+
+### コード例
+
+```cpp
+// クラス定義
+class PidController {
+public:
+    float compute(float setpoint, float measured, float dt);
+    void setGains(float kp, float ki, float kd);
+private:
+    float kp_;
+    float integral_;
+};
+
+// 使用例
+PidController pid(1.0f, 0.1f, 0.01f);
+float targetRpm = 100.0f;
+float output = pid.compute(targetRpm, measuredRpm, dt);
+```
+
+### 既存コードについて
+
+既存コード（MotorLogic, SerialProtocol等）はスネークケースで書かれているが、新規コードはArduinoスタイルで統一する。既存コードのリファクタリングはPhase 6で実施予定。

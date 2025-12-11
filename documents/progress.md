@@ -19,7 +19,7 @@
 | protocol.md作成 | ✅ | リクエスト・レスポンス型通信仕様 |
 | test_specifications.md作成 | ✅ | TDDテストケース仕様 |
 | development.md更新 | ✅ | 新構成に合わせて更新 |
-| HardwareConfig作成 | ⬜ | ピンアサイン定義 |
+| HardwareConfig作成 | ✅ | ピンアサイン定義 |
 
 ### Phase 2: PIDController（TDD）
 
@@ -64,9 +64,9 @@
 
 ## 次に着手すべきタスク
 
-**→ HardwareConfig作成**
+**→ Phase 2: PIDController テスト作成**
 
-理由: 他のライブラリがピン定義を参照するため、最初に作成する必要がある。
+理由: TDD方式で進めるため、まずテストを作成してから実装する。
 
 ## 完了履歴
 
@@ -78,3 +78,5 @@
 | 2025-12-11 | progress.md作成 |
 | 2025-12-11 | protocol.md作成（リクエスト・レスポンス型通信仕様） |
 | 2025-12-11 | development.md更新 |
+| 2025-12-12 | HardwareConfig作成 |
+| 2025-12-12 | CLAUDE.md コーディング規約追加（Arduinoスタイル） |
