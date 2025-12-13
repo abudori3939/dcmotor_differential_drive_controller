@@ -36,7 +36,8 @@
 | QuadratureEncoder RPM計算テスト | ✅ | 10テストケース |
 | QuadratureEncoder 4逓倍デコードテスト | ✅ | 19テストケース |
 | QuadratureEncoder実装 | 🟨 | ロジック実装済、割り込み処理は実機で |
-| MotorDriver実装 | ⬜ | PWM+方向ピン |
+| MotorDriverテスト | ✅ | 11テストケース（速度クランプ、方向判定、PWM計算） |
+| MotorDriver実装 | ✅ | PWM+方向ピン、ロジック実装済 |
 
 ### Phase 4: 統合
 
@@ -66,9 +67,9 @@
 
 ## 次に着手すべきタスク
 
-**→ Phase 3: MotorDriver実装**
+**→ Phase 4: MotorController実装**
 
-理由: PWM+方向ピン出力のモータドライバを実装する。ハードウェア依存部分のため実機テスト要。
+理由: 左右モータの統合制御を実装する。cmd_velから差動二輪キネマティクスでRPMを計算し、PID制御ループを実行する。
 
 ## 完了履歴
 
@@ -93,3 +94,5 @@
 | 2025-12-13 | ConfigStorage設定項目拡張（wheel_diameter, track_width追加） |
 | 2025-12-13 | QuadratureEncoder テスト作成（29テストケース: RPM計算+4逓倍デコード） |
 | 2025-12-13 | QuadratureEncoder ロジック実装（calculateRpm, decodeState） |
+| 2025-12-13 | MotorDriver テスト作成（11テストケース: 速度クランプ、方向判定、PWM計算） |
+| 2025-12-13 | MotorDriver 実装（clampSpeed, getDirection, calculatePwmDuty） |
