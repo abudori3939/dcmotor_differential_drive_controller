@@ -33,6 +33,21 @@
 
 ### PlatformIOのインストール
 
+**macOS（推奨）:**
+```bash
+brew install platformio
+```
+
+Homebrewでインストールした場合、pioコマンドは `/opt/homebrew/bin/pio` にインストールされる。
+pyenv等の仮想環境でctypesエラーが発生する場合は、Homebrew版を使用すること。
+
+```bash
+# Homebrew版を明示的に使用
+/opt/homebrew/bin/pio test -e native
+/opt/homebrew/bin/pio run -e pico
+```
+
+**その他の方法:**
 ```bash
 pip install platformio
 ```

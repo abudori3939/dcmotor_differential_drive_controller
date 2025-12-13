@@ -25,9 +25,9 @@
 
 | タスク | ステータス | 備考 |
 |--------|----------|------|
-| テスト作成 | ⬜ | test_specifications.md参照 |
-| PIDController実装 | ⬜ | |
-| テストパス確認 | ⬜ | |
+| テスト作成 | ✅ | 19テストケース作成 |
+| PIDController実装 | ✅ | アンチワインドアップ（条件付き積分）対応 |
+| テストパス確認 | ✅ | 全42テストパス |
 
 ### Phase 3: エンコーダ・モータドライバ
 
@@ -64,9 +64,9 @@
 
 ## 次に着手すべきタスク
 
-**→ Phase 2: PIDController テスト作成**
+**→ Phase 3: QuadratureEncoder RPM計算テスト**
 
-理由: TDD方式で進めるため、まずテストを作成してから実装する。
+理由: エンコーダのRPM計算ロジックをTDD方式でテスト・実装する。
 
 ## 完了履歴
 
@@ -82,3 +82,6 @@
 | 2025-12-13 | CLAUDE.md コーディング規約追加（Arduinoスタイル） |
 | 2025-12-13 | DebugLogger追加（Debug Probe対応） |
 | 2025-12-13 | pico_debug環境追加（platformio.ini） |
+| 2025-12-13 | PIDController テスト作成（19テストケース） |
+| 2025-12-13 | PIDController 実装完了（アンチワインドアップ対応） |
+| 2025-12-13 | development.md Homebrew版PlatformIO手順追加 |
