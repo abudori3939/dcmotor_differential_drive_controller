@@ -9,9 +9,10 @@
 // コンストラクタ
 // =============================================================================
 
-MotorDriver::MotorDriver(uint8_t pinDir, uint8_t pinPwm)
+MotorDriver::MotorDriver(uint8_t pinDir, uint8_t pinPwm, bool inverted)
     : pinDir_(pinDir)
     , pinPwm_(pinPwm)
+    , inverted_(inverted)
     , currentSpeed_(0.0f)
 {
 }
@@ -37,8 +38,8 @@ void MotorDriver::setSpeed(float speed) {
     currentSpeed_ = clampSpeed(speed);
 
 #ifdef ARDUINO
-    // 方向設定（LOW=正転、HIGH=逆転）
-    digitalWrite(pinDir_, getDirection(currentSpeed_) ? HIGH : LOW);
+    // 方向設定（LOW=正転、HIGH=逆転）、反転フラグ考慮
+    digitalWrite(pinDir_, getDirection(currentSpeed_, inverted_) ? HIGH : LOW);
 
     // PWM設定
     analogWrite(pinPwm_, calculatePwmDuty(currentSpeed_));
@@ -85,6 +86,18 @@ bool MotorDriver::getDirection(float speed) {
     // 負の速度で逆転（DIR = HIGH = true）
     // 正の速度・0で正転（DIR = LOW = false）
     return speed < 0.0f;
+}
+
+bool MotorDriver::getDirection(float speed, bool inverted) {
+    // 基本の方向判定
+    bool direction = getDirection(speed);
+
+    // 反転フラグがtrueの場合、方向を反転
+    if (inverted) {
+        direction = !direction;
+    }
+
+    return direction;
 }
 
 uint8_t MotorDriver::calculatePwmDuty(float speed) {

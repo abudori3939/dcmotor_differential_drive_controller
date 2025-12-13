@@ -16,8 +16,9 @@ public:
      * コンストラクタ
      * @param pinDir 方向ピン番号
      * @param pinPwm PWMピン番号
+     * @param inverted 反転フラグ（trueでモータ回転方向を反転、デフォルトfalse）
      */
-    MotorDriver(uint8_t pinDir, uint8_t pinPwm);
+    MotorDriver(uint8_t pinDir, uint8_t pinPwm, bool inverted = false);
 
     /**
      * 初期化（ピンモード設定、PWM周波数設定）
@@ -59,6 +60,14 @@ public:
     static bool getDirection(float speed);
 
     /**
+     * 速度から方向を判定（反転フラグ付き）
+     * @param speed 速度（正:正転、負:逆転）
+     * @param inverted 反転フラグ（trueで方向を反転）
+     * @return 方向（false=LOW=正転、true=HIGH=逆転）
+     */
+    static bool getDirection(float speed, bool inverted);
+
+    /**
      * 速度からPWMデューティサイクルを計算
      * @param speed 速度（-1.0〜1.0）
      * @return PWMデューティサイクル（0〜255）
@@ -73,6 +82,7 @@ public:
 private:
     uint8_t pinDir_;
     uint8_t pinPwm_;
+    bool inverted_;
     float currentSpeed_;
 };
 

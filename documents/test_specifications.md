@@ -98,6 +98,31 @@ void test_encoder_rpm_reverse(void) {
 }
 ```
 
+### 反転フラグ（差動二輪対応）
+
+差動二輪ロボットでは左右モータが対称に取り付けられるため、カウント方向を反転させる必要がある。
+
+| テストケース | 条件 | 期待動作 |
+|-------------|------|---------|
+| 反転時の正転 | inverted=true, 正転遷移 | -1を返す（通常は+1） |
+| 反転時の逆転 | inverted=true, 逆転遷移 | +1を返す（通常は-1） |
+| 反転時の変化なし | inverted=true, 無変化 | 0を返す |
+| 反転時の不正遷移 | inverted=true, スキップ | 0を返す |
+| 非反転 | inverted=false | 既存動作と同じ |
+
+## MotorDriver テスト仕様
+
+### 反転フラグ（差動二輪対応）
+
+モータ取り付け方向を考慮した反転設定。
+
+| テストケース | 条件 | 期待動作 |
+|-------------|------|---------|
+| 反転時の正速度 | inverted=true, speed>0 | DIR=HIGH（逆転） |
+| 反転時の負速度 | inverted=true, speed<0 | DIR=LOW（正転） |
+| 反転時の速度0 | inverted=true, speed=0 | DIR=HIGH（逆転） |
+| 非反転 | inverted=false | 既存動作と同じ |
+
 ## DifferentialKinematics テスト仕様
 
 cmd_velから左右ホイールRPMへの変換テスト。

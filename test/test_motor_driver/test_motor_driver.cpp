@@ -67,6 +67,38 @@ void test_getDirection_zero_speed(void) {
 }
 
 // =============================================================================
+// 反転フラグ付き方向判定テスト
+// モータ取り付け方向を考慮した反転設定
+// =============================================================================
+
+void test_getDirection_inverted_positive_speed(void) {
+    // 反転時: 正の速度は逆転方向（DIR = HIGH = true）
+    TEST_ASSERT_TRUE(MotorDriver::getDirection(0.5f, true));
+    TEST_ASSERT_TRUE(MotorDriver::getDirection(1.0f, true));
+    TEST_ASSERT_TRUE(MotorDriver::getDirection(0.001f, true));
+}
+
+void test_getDirection_inverted_negative_speed(void) {
+    // 反転時: 負の速度は正転方向（DIR = LOW = false）
+    TEST_ASSERT_FALSE(MotorDriver::getDirection(-0.5f, true));
+    TEST_ASSERT_FALSE(MotorDriver::getDirection(-1.0f, true));
+    TEST_ASSERT_FALSE(MotorDriver::getDirection(-0.001f, true));
+}
+
+void test_getDirection_inverted_zero_speed(void) {
+    // 反転時: 速度0は逆転方向（DIR = HIGH = true）
+    // 0の場合も反転するのが一貫性がある
+    TEST_ASSERT_TRUE(MotorDriver::getDirection(0.0f, true));
+}
+
+void test_getDirection_not_inverted_same_as_default(void) {
+    // 非反転（inverted=false）は既存動作と同じ
+    TEST_ASSERT_FALSE(MotorDriver::getDirection(0.5f, false));
+    TEST_ASSERT_TRUE(MotorDriver::getDirection(-0.5f, false));
+    TEST_ASSERT_FALSE(MotorDriver::getDirection(0.0f, false));
+}
+
+// =============================================================================
 // PWMデューティサイクル計算テスト
 // =============================================================================
 
@@ -114,6 +146,12 @@ int main(int argc, char **argv) {
     RUN_TEST(test_getDirection_positive_speed);
     RUN_TEST(test_getDirection_negative_speed);
     RUN_TEST(test_getDirection_zero_speed);
+
+    // 反転フラグ付き方向判定テスト
+    RUN_TEST(test_getDirection_inverted_positive_speed);
+    RUN_TEST(test_getDirection_inverted_negative_speed);
+    RUN_TEST(test_getDirection_inverted_zero_speed);
+    RUN_TEST(test_getDirection_not_inverted_same_as_default);
 
     // PWMデューティサイクル計算テスト
     RUN_TEST(test_calculatePwmDuty_full_speed);

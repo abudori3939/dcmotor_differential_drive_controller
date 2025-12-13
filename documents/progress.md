@@ -35,9 +35,10 @@
 |--------|----------|------|
 | QuadratureEncoder RPM計算テスト | ✅ | 10テストケース |
 | QuadratureEncoder 4逓倍デコードテスト | ✅ | 19テストケース |
+| QuadratureEncoder 反転フラグテスト | ✅ | 13テストケース（差動二輪対応） |
 | QuadratureEncoder実装 | 🟨 | ロジック実装済、割り込み処理は実機で |
-| MotorDriverテスト | ✅ | 11テストケース（速度クランプ、方向判定、PWM計算） |
-| MotorDriver実装 | ✅ | PWM+方向ピン、ロジック実装済 |
+| MotorDriverテスト | ✅ | 15テストケース（速度クランプ、方向判定、PWM計算、反転フラグ） |
+| MotorDriver実装 | ✅ | PWM+方向ピン、反転フラグ対応 |
 
 ### Phase 4: 統合
 
@@ -96,3 +97,5 @@
 | 2025-12-13 | QuadratureEncoder ロジック実装（calculateRpm, decodeState） |
 | 2025-12-13 | MotorDriver テスト作成（11テストケース: 速度クランプ、方向判定、PWM計算） |
 | 2025-12-13 | MotorDriver 実装（clampSpeed, getDirection, calculatePwmDuty） |
+| 2025-12-13 | MotorDriver 反転フラグ追加（差動二輪のモータ取り付け方向対応） |
+| 2025-12-13 | QuadratureEncoder 反転フラグ追加（decodeStateで符号反転） |
