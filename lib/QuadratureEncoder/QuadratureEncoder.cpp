@@ -70,6 +70,18 @@ int8_t QuadratureEncoder::decodeState(uint8_t prevState, uint8_t currState) {
     return DECODE_TABLE[prev][curr];
 }
 
+int8_t QuadratureEncoder::decodeState(uint8_t prevState, uint8_t currState, bool inverted) {
+    // 基本のデコード結果を取得
+    int8_t delta = decodeState(prevState, currState);
+
+    // 反転フラグがtrueの場合、符号を反転
+    if (inverted) {
+        delta = -delta;
+    }
+
+    return delta;
+}
+
 void QuadratureEncoder::handleInterrupt() {
     // ハードウェア依存: 割り込みハンドラ
     // 実機実装時に追加

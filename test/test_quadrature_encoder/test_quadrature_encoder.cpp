@@ -208,6 +208,101 @@ void test_decode_forward_then_reverse(void) {
     TEST_ASSERT_EQUAL_INT32(0, count);
 }
 
+// ============================================================
+// 反転フラグ付きデコードテスト
+// エンコーダ取り付け方向を考慮した反転設定
+// Rモータ側では正回転で-1、逆回転で+1となる
+// ============================================================
+
+// --- 反転時の正転（通常+1 → -1） ---
+
+void test_decode_inverted_forward_00_to_01(void) {
+    int8_t delta = QuadratureEncoder::decodeState(0b00, 0b01, true);
+    TEST_ASSERT_EQUAL_INT8(-1, delta);
+}
+
+void test_decode_inverted_forward_01_to_11(void) {
+    int8_t delta = QuadratureEncoder::decodeState(0b01, 0b11, true);
+    TEST_ASSERT_EQUAL_INT8(-1, delta);
+}
+
+void test_decode_inverted_forward_11_to_10(void) {
+    int8_t delta = QuadratureEncoder::decodeState(0b11, 0b10, true);
+    TEST_ASSERT_EQUAL_INT8(-1, delta);
+}
+
+void test_decode_inverted_forward_10_to_00(void) {
+    int8_t delta = QuadratureEncoder::decodeState(0b10, 0b00, true);
+    TEST_ASSERT_EQUAL_INT8(-1, delta);
+}
+
+// --- 反転時の逆転（通常-1 → +1） ---
+
+void test_decode_inverted_reverse_00_to_10(void) {
+    int8_t delta = QuadratureEncoder::decodeState(0b00, 0b10, true);
+    TEST_ASSERT_EQUAL_INT8(1, delta);
+}
+
+void test_decode_inverted_reverse_10_to_11(void) {
+    int8_t delta = QuadratureEncoder::decodeState(0b10, 0b11, true);
+    TEST_ASSERT_EQUAL_INT8(1, delta);
+}
+
+void test_decode_inverted_reverse_11_to_01(void) {
+    int8_t delta = QuadratureEncoder::decodeState(0b11, 0b01, true);
+    TEST_ASSERT_EQUAL_INT8(1, delta);
+}
+
+void test_decode_inverted_reverse_01_to_00(void) {
+    int8_t delta = QuadratureEncoder::decodeState(0b01, 0b00, true);
+    TEST_ASSERT_EQUAL_INT8(1, delta);
+}
+
+// --- 反転時の変化なし/不正遷移（0のまま） ---
+
+void test_decode_inverted_no_change(void) {
+    TEST_ASSERT_EQUAL_INT8(0, QuadratureEncoder::decodeState(0b00, 0b00, true));
+    TEST_ASSERT_EQUAL_INT8(0, QuadratureEncoder::decodeState(0b01, 0b01, true));
+}
+
+void test_decode_inverted_invalid(void) {
+    TEST_ASSERT_EQUAL_INT8(0, QuadratureEncoder::decodeState(0b00, 0b11, true));
+    TEST_ASSERT_EQUAL_INT8(0, QuadratureEncoder::decodeState(0b01, 0b10, true));
+}
+
+// --- 非反転（inverted=false）は既存動作と同じ ---
+
+void test_decode_not_inverted_same_as_default(void) {
+    TEST_ASSERT_EQUAL_INT8(
+        QuadratureEncoder::decodeState(0b00, 0b01),
+        QuadratureEncoder::decodeState(0b00, 0b01, false)
+    );
+    TEST_ASSERT_EQUAL_INT8(
+        QuadratureEncoder::decodeState(0b00, 0b10),
+        QuadratureEncoder::decodeState(0b00, 0b10, false)
+    );
+}
+
+// --- 反転時の完全シーケンステスト ---
+
+void test_decode_inverted_full_forward_cycle(void) {
+    int32_t count = 0;
+    count += QuadratureEncoder::decodeState(0b00, 0b01, true);  // -1
+    count += QuadratureEncoder::decodeState(0b01, 0b11, true);  // -1
+    count += QuadratureEncoder::decodeState(0b11, 0b10, true);  // -1
+    count += QuadratureEncoder::decodeState(0b10, 0b00, true);  // -1
+    TEST_ASSERT_EQUAL_INT32(-4, count);
+}
+
+void test_decode_inverted_full_reverse_cycle(void) {
+    int32_t count = 0;
+    count += QuadratureEncoder::decodeState(0b00, 0b10, true);  // +1
+    count += QuadratureEncoder::decodeState(0b10, 0b11, true);  // +1
+    count += QuadratureEncoder::decodeState(0b11, 0b01, true);  // +1
+    count += QuadratureEncoder::decodeState(0b01, 0b00, true);  // +1
+    TEST_ASSERT_EQUAL_INT32(4, count);
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
 
@@ -251,6 +346,21 @@ int main(int argc, char **argv) {
     RUN_TEST(test_decode_full_forward_cycle);
     RUN_TEST(test_decode_full_reverse_cycle);
     RUN_TEST(test_decode_forward_then_reverse);
+
+    // 4逓倍デコード: 反転フラグ
+    RUN_TEST(test_decode_inverted_forward_00_to_01);
+    RUN_TEST(test_decode_inverted_forward_01_to_11);
+    RUN_TEST(test_decode_inverted_forward_11_to_10);
+    RUN_TEST(test_decode_inverted_forward_10_to_00);
+    RUN_TEST(test_decode_inverted_reverse_00_to_10);
+    RUN_TEST(test_decode_inverted_reverse_10_to_11);
+    RUN_TEST(test_decode_inverted_reverse_11_to_01);
+    RUN_TEST(test_decode_inverted_reverse_01_to_00);
+    RUN_TEST(test_decode_inverted_no_change);
+    RUN_TEST(test_decode_inverted_invalid);
+    RUN_TEST(test_decode_not_inverted_same_as_default);
+    RUN_TEST(test_decode_inverted_full_forward_cycle);
+    RUN_TEST(test_decode_inverted_full_reverse_cycle);
 
     return UNITY_END();
 }

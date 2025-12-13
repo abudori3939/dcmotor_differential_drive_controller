@@ -63,6 +63,15 @@ public:
      */
     static int8_t decodeState(uint8_t prevState, uint8_t currState);
 
+    /**
+     * 4逓倍デコード（反転フラグ付き）
+     * @param prevState 前回の状態 (A << 1) | B
+     * @param currState 現在の状態 (A << 1) | B
+     * @param inverted 反転フラグ（trueでカウント方向を反転）
+     * @return カウント増減（+1/-1/0、invertedで符号反転）
+     */
+    static int8_t decodeState(uint8_t prevState, uint8_t currState, bool inverted);
+
 private:
     uint8_t pinA_;
     uint8_t pinB_;
