@@ -98,6 +98,55 @@ void test_encoder_rpm_reverse(void) {
 }
 ```
 
+## DifferentialKinematics テスト仕様
+
+cmd_velから左右ホイールRPMへの変換テスト。
+
+### 計算式
+
+```
+wheel_radius = wheel_diameter / 2
+left_vel  = linear_x - angular_z * track_width / 2  [m/s]
+right_vel = linear_x + angular_z * track_width / 2  [m/s]
+left_rpm  = left_vel / (2 * PI * wheel_radius) * 60 * gear_ratio
+right_rpm = right_vel / (2 * PI * wheel_radius) * 60 * gear_ratio
+```
+
+### テストケース
+
+テスト条件: wheel_diameter=0.1m, track_width=0.3m, gear_ratio=1.0
+
+| テストケース | linear_x | angular_z | 期待left_rpm | 期待right_rpm |
+|-------------|----------|-----------|--------------|---------------|
+| 前進のみ | 0.1 m/s | 0 rad/s | 19.1 | 19.1 |
+| 後退のみ | -0.1 m/s | 0 rad/s | -19.1 | -19.1 |
+| 左旋回（その場） | 0 m/s | 1.0 rad/s | -28.6 | 28.6 |
+| 右旋回（その場） | 0 m/s | -1.0 rad/s | 28.6 | -28.6 |
+| 前進+左旋回 | 0.1 m/s | 0.5 rad/s | 4.8 | 33.4 |
+| 停止 | 0 m/s | 0 rad/s | 0 | 0 |
+
+### テストコード例
+
+```cpp
+void test_kinematics_forward(void) {
+    // wheel_diameter=0.1m, track_width=0.3m, gear_ratio=1.0
+    float left_rpm, right_rpm;
+    calculate_wheel_rpm(0.1f, 0.0f, 0.1f, 0.3f, 1.0f, left_rpm, right_rpm);
+    // 0.1 / (2 * PI * 0.05) * 60 = 19.0986...
+    TEST_ASSERT_FLOAT_WITHIN(0.1f, 19.1f, left_rpm);
+    TEST_ASSERT_FLOAT_WITHIN(0.1f, 19.1f, right_rpm);
+}
+
+void test_kinematics_rotate_left(void) {
+    float left_rpm, right_rpm;
+    calculate_wheel_rpm(0.0f, 1.0f, 0.1f, 0.3f, 1.0f, left_rpm, right_rpm);
+    // left_vel = 0 - 1.0 * 0.15 = -0.15 m/s → -28.6 RPM
+    // right_vel = 0 + 1.0 * 0.15 = 0.15 m/s → 28.6 RPM
+    TEST_ASSERT_FLOAT_WITHIN(0.1f, -28.6f, left_rpm);
+    TEST_ASSERT_FLOAT_WITHIN(0.1f, 28.6f, right_rpm);
+}
+```
+
 ## ConfigStorage テスト仕様
 
 Flashアクセスはモック化してテスト。
@@ -119,7 +168,10 @@ const RobotConfig DEFAULT_CONFIG = {
     .pid_ki = 0.1f,
     .pid_kd = 0.01f,
     .max_rpm = 200.0f,
-    .encoder_ppr = 1024
+    .encoder_ppr = 1024,
+    .gear_ratio = 1.0f,
+    .wheel_diameter = 0.1f,   // 100mm
+    .track_width = 0.3f       // 300mm
 };
 ```
 

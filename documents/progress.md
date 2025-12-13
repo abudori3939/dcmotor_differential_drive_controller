@@ -41,9 +41,10 @@
 
 | タスク | ステータス | 備考 |
 |--------|----------|------|
-| MotorController実装 | ⬜ | Core1で実行 |
-| SharedMotorData定義 | ⬜ | コア間共有データ |
-| main.cpp Core0実装 | ⬜ | ROS通信側、新プロトコル対応 |
+| MotorController実装 | ⬜ | Core1で実行、キネマティクス計算含む |
+| DifferentialKinematicsテスト | ⬜ | cmd_vel→RPM変換テスト |
+| SharedMotorData定義 | ⬜ | コア間共有データ（linear_x, angular_z） |
+| main.cpp Core0実装 | ⬜ | cmd_vel受信、新プロトコル対応 |
 | main.cpp Core1実装 | ⬜ | setup1()/loop1() |
 
 ### Phase 5: 設定機能
@@ -85,3 +86,7 @@
 | 2025-12-13 | PIDController テスト作成（19テストケース） |
 | 2025-12-13 | PIDController 実装完了（アンチワインドアップ対応） |
 | 2025-12-13 | development.md Homebrew版PlatformIO手順追加 |
+| 2025-12-13 | protocol.md cmd_vel対応（linear_x, angular_z入力に変更） |
+| 2025-12-13 | architecture.md mermaid図に更新、キネマティクス計算追加 |
+| 2025-12-13 | test_specifications.md DifferentialKinematicsテスト追加 |
+| 2025-12-13 | ConfigStorage設定項目拡張（wheel_diameter, track_width追加） |
