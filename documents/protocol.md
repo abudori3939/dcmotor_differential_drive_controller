@@ -129,14 +129,25 @@ bit 15: CONFIG_MODE     - 設定モード中
 
 通常の速度指令とエンコーダカウント取得。100Hzで使用。
 
+ROSから`cmd_vel`（並進速度・回転速度）を受信し、Pico内部でFlash設定を使用して左右モータのRPMを計算する。
+
 **リクエスト: 12バイト**
 ```
 オフセット  サイズ  型       内容
 0          1      uint8    request_type = 0x00
 1          1      uint8    payload_length = 8
 2          2      uint16   checksum
-4          4      float    target_rpm_l (左モータ目標RPM)
-8          4      float    target_rpm_r (右モータ目標RPM)
+4          4      float    linear_x (並進速度 [m/s])
+8          4      float    angular_z (回転速度 [rad/s])
+```
+
+**Pico内部でのRPM計算:**
+```
+wheel_radius = wheel_diameter / 2
+left_vel  = linear_x - angular_z * track_width / 2  [m/s]
+right_vel = linear_x + angular_z * track_width / 2  [m/s]
+left_rpm  = left_vel / (2 * PI * wheel_radius) * 60 * gear_ratio
+right_rpm = right_vel / (2 * PI * wheel_radius) * 60 * gear_ratio
 ```
 
 **レスポンス: 14バイト**
@@ -230,11 +241,11 @@ bit 15: CONFIG_MODE     - 設定モード中
 2          2      uint16   checksum = 0
 ```
 
-**レスポンス: 26バイト**
+**レスポンス: 34バイト**
 ```
 オフセット  サイズ  型       内容
 0          1      uint8    response_type = 0x03
-1          1      uint8    payload_length = 22
+1          1      uint8    payload_length = 30
 2          2      uint16   checksum
 4          4      float    pid_kp
 8          4      float    pid_ki
@@ -242,6 +253,8 @@ bit 15: CONFIG_MODE     - 設定モード中
 16         4      float    max_rpm (モータ最高RPM)
 20         2      uint16   encoder_ppr (エンコーダPPR)
 22         4      float    gear_ratio (減速比)
+26         4      float    wheel_diameter (ホイール直径 [m])
+30         4      float    track_width (トレッド幅 [m])
 ```
 
 ---
@@ -250,11 +263,11 @@ bit 15: CONFIG_MODE     - 設定モード中
 
 設定値を書き込み、Flashに保存。
 
-**リクエスト: 26バイト**
+**リクエスト: 34バイト**
 ```
 オフセット  サイズ  型       内容
 0          1      uint8    request_type = 0x04
-1          1      uint8    payload_length = 22
+1          1      uint8    payload_length = 30
 2          2      uint16   checksum
 4          4      float    pid_kp
 8          4      float    pid_ki
@@ -262,6 +275,8 @@ bit 15: CONFIG_MODE     - 設定モード中
 16         4      float    max_rpm
 20         2      uint16   encoder_ppr
 22         4      float    gear_ratio
+26         4      float    wheel_diameter (ホイール直径 [m])
+30         4      float    track_width (トレッド幅 [m])
 ```
 
 **レスポンス: 5バイト**
@@ -286,6 +301,8 @@ bit 15: CONFIG_MODE     - 設定モード中
 
 デバッグ用の詳細出力を取得。開発・調整時に使用。
 
+cmd_velから計算された目標RPMも含まれるため、キネマティクス計算の確認に利用可能。
+
 **リクエスト: 4バイト**
 ```
 オフセット  サイズ  型       内容
@@ -294,18 +311,20 @@ bit 15: CONFIG_MODE     - 設定モード中
 2          2      uint16   checksum = 0
 ```
 
-**レスポンス: 28バイト**
+**レスポンス: 36バイト**
 ```
 オフセット  サイズ  型       内容
 0          1      uint8    response_type = 0x05
-1          1      uint8    payload_length = 24
+1          1      uint8    payload_length = 32
 2          2      uint16   checksum
 4          4      int32    encoder_count_l
 8          4      int32    encoder_count_r
-12         4      float    current_rpm_l (現在のRPM)
-16         4      float    current_rpm_r
-20         4      float    pwm_duty_l (PWM出力値 -1.0~1.0)
-24         4      float    pwm_duty_r
+12         4      float    target_rpm_l (cmd_velから計算した目標RPM)
+16         4      float    target_rpm_r
+20         4      float    current_rpm_l (エンコーダから計算した現在RPM)
+24         4      float    current_rpm_r
+28         4      float    pwm_duty_l (PWM出力値 -1.0~1.0)
+32         4      float    pwm_duty_r
 ```
 
 ---
@@ -413,8 +432,9 @@ class PicoProtocol:
             return None
         return cobs.decode(data)
 
-    def motor_command(self, target_rpm_l, target_rpm_r):
-        payload = struct.pack('<ff', target_rpm_l, target_rpm_r)
+    def motor_command(self, linear_x, angular_z):
+        """cmd_velを送信してエンコーダカウントを取得"""
+        payload = struct.pack('<ff', linear_x, angular_z)
         self._send_request(self.REQUEST_MOTOR_COMMAND, payload)
         response = self._receive_response()
         if response and len(response) >= 14:
@@ -433,16 +453,19 @@ class PicoProtocol:
     def get_config(self):
         self._send_request(self.REQUEST_GET_CONFIG)
         response = self._receive_response()
-        if response and len(response) >= 26:
-            _, _, _, kp, ki, kd, max_rpm, ppr, gear = struct.unpack('<BBHfffHf', response[0:26])
+        if response and len(response) >= 34:
+            _, _, _, kp, ki, kd, max_rpm, ppr, gear, wheel_d, track_w = struct.unpack(
+                '<BBHfffHfff', response[0:34])
             return {
                 'pid_kp': kp, 'pid_ki': ki, 'pid_kd': kd,
-                'max_rpm': max_rpm, 'encoder_ppr': ppr, 'gear_ratio': gear
+                'max_rpm': max_rpm, 'encoder_ppr': ppr, 'gear_ratio': gear,
+                'wheel_diameter': wheel_d, 'track_width': track_w
             }
         return None
 
-    def set_config(self, kp, ki, kd, max_rpm, ppr, gear_ratio):
-        payload = struct.pack('<ffffHf', kp, ki, kd, max_rpm, ppr, gear_ratio)
+    def set_config(self, kp, ki, kd, max_rpm, ppr, gear_ratio, wheel_diameter, track_width):
+        payload = struct.pack('<fffHfff', kp, ki, kd, max_rpm, ppr, gear_ratio,
+                              wheel_diameter, track_width)
         self._send_request(self.REQUEST_SET_CONFIG, payload)
         response = self._receive_response()
         if response and len(response) >= 5:

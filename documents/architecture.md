@@ -24,7 +24,7 @@ Raspberry Pi Picoのデュアルコアを活用してリアルタイム性を確
 
 ### Core0（メインコア）
 - ROS通信（PacketSerial）
-- コマンド解析・目標RPM受信
+- コマンド解析・cmd_vel受信（linear_x, angular_z）
 - フェイルセーフ監視
 - 設定モード処理
 - エンコーダカウントをROSに送信
@@ -43,85 +43,109 @@ Raspberry Pi Picoのデュアルコアを活用してリアルタイム性を確
 
 // 共有データ構造
 struct SharedMotorData {
-    // Core0 → Core1（目標値）
-    float target_rpm_l;
-    float target_rpm_r;
+    // Core0 → Core1（cmd_vel入力）
+    float linear_x;       // 並進速度 [m/s]
+    float angular_z;      // 回転速度 [rad/s]
     bool failsafe_stop;
 
     // Core1 → Core0（現在値）
     long encoder_count_l;
     long encoder_count_r;
-    float current_rpm_l;
+    float target_rpm_l;   // cmd_velから計算した目標RPM
+    float target_rpm_r;
+    float current_rpm_l;  // エンコーダから計算した現在RPM
     float current_rpm_r;
 };
 
 volatile SharedMotorData shared_data;
 mutex_t motor_mutex;
 
-// Core0での書き込み
+// Core0での書き込み（ROSから受信したcmd_vel）
 mutex_enter_blocking(&motor_mutex);
-shared_data.target_rpm_l = new_target_l;
-shared_data.target_rpm_r = new_target_r;
+shared_data.linear_x = new_linear_x;
+shared_data.angular_z = new_angular_z;
 mutex_exit(&motor_mutex);
 
-// Core1での読み込み
+// Core1での読み込み（キネマティクス計算してRPMに変換）
 mutex_enter_blocking(&motor_mutex);
-float local_target_l = shared_data.target_rpm_l;
-float local_target_r = shared_data.target_rpm_r;
+float linear_x = shared_data.linear_x;
+float angular_z = shared_data.angular_z;
 mutex_exit(&motor_mutex);
+// → MotorController内でRPM計算
 ```
 
 ## 新アーキテクチャ
 
+```mermaid
+flowchart TB
+    subgraph Core0["Core0 (メインコア)"]
+        main["main.cpp"]
+        ros["ROS通信<br/>PacketSerial"]
+        cmdvel["cmd_vel受信<br/>linear_x, angular_z"]
+        failsafe["フェイルセーフ"]
+        config_mode["設定モード処理"]
+    end
+
+    subgraph Core1["Core1 (リアルタイムコア)"]
+        mc["MotorController"]
+        kinematics["差動二輪キネマティクス<br/>cmd_vel → 左右RPM"]
+        pid_l["PIDController<br/>左モータ"]
+        pid_r["PIDController<br/>右モータ"]
+    end
+
+    subgraph Hardware["ハードウェア抽象化"]
+        enc_l["QuadratureEncoder<br/>左エンコーダ"]
+        enc_r["QuadratureEncoder<br/>右エンコーダ"]
+        drv_l["MotorDriver<br/>左モータ"]
+        drv_r["MotorDriver<br/>右モータ"]
+    end
+
+    subgraph Storage["設定・定数"]
+        flash["ConfigStorage<br/>Flash読み書き"]
+        hwconfig["HardwareConfig<br/>ピン定義"]
+    end
+
+    subgraph Existing["既存ライブラリ"]
+        serial["SerialProtocol<br/>パケット処理"]
+        logic["MotorLogic<br/>RPMクランプ"]
+    end
+
+    main --> ros
+    ros --> cmdvel
+    main --> failsafe
+    main --> config_mode
+
+    Core0 -->|"Shared Memory + Mutex<br/>linear_x, angular_z"| Core1
+
+    mc --> kinematics
+    kinematics --> pid_l
+    kinematics --> pid_r
+
+    enc_l --> mc
+    enc_r --> mc
+    pid_l --> drv_l
+    pid_r --> drv_r
+
+    flash --> mc
+    hwconfig --> Hardware
+
+    serial --> ros
+    logic --> mc
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    main.cpp (Core0)                         │
-│  ・ROS通信（PacketSerial）                                   │
-│  ・コマンド解析                                              │
-│  ・フェイルセーフ                                            │
-│  ・設定モード処理                                            │
-└─────────────────────────────────────────────────────────────┘
-              │ Shared Memory + Mutex
-              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                MotorController (Core1)                       │
-│  ・左右モータの統合制御                                       │
-│  ・目標RPM → PID → PWM出力の制御ループ                        │
-└─────────────────────────────────────────────────────────────┘
-              │                               │
-              ▼                               ▼
-┌─────────────────────────┐     ┌─────────────────────────┐
-│   QuadratureEncoder     │     │      MotorDriver        │
-│  ・2相エンコーダ読み取り  │     │  ・PWM出力              │
-│  ・カウント累積          │     │  ・方向ピン(H/L)         │
-│  ・RPM計算              │     │                         │
-└─────────────────────────┘     └─────────────────────────┘
-              │
-              ▼
-┌─────────────────────────┐
-│     PIDController       │
-│  ・PID計算              │
-│  ・ゲイン設定           │
-└─────────────────────────┘
 
-┌─────────────────────────────────────────────────────────────┐
-│  既存ライブラリ（変更なし）                                   │
-│  ・SerialProtocol: パケット処理、チェックサム                 │
-│  ・MotorLogic: RPMクランプ                                   │
-└─────────────────────────────────────────────────────────────┘
+### データフロー
 
-┌─────────────────────────────────────────────────────────────┐
-│                   ConfigStorage (新規)                       │
-│  ・Flash読み書き（EEPROM/LittleFS）                          │
-│  ・PIDゲイン、最高速度の永続化                                │
-└─────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────┐
-│                   HardwareConfig (新規)                      │
-│  ・ピンアサイン定義                                          │
-│  ・エンコーダPPR設定                                         │
-│  ・PWM周波数設定                                             │
-└─────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    ROS["ROS 2"] -->|"cmd_vel<br/>linear_x, angular_z"| Core0
+    Core0 -->|"Shared Memory"| Core1
+    Core1 -->|"キネマティクス計算"| RPM["目標RPM<br/>左/右"]
+    RPM --> PID["PID制御"]
+    Encoder["エンコーダ"] -->|"現在RPM"| PID
+    PID --> PWM["PWM出力"]
+    PWM --> Motor["DCモータ"]
+    Encoder --> Core0
+    Core0 -->|"encoder_count"| ROS
 ```
 
 ## ライブラリ一覧
@@ -154,13 +178,16 @@ mutex_exit(&motor_mutex);
 
 ### 設定項目
 
-| 項目 | 型 | デフォルト値 |
-|------|---|-------------|
-| PID Kp | float | 1.0 |
-| PID Ki | float | 0.1 |
-| PID Kd | float | 0.01 |
-| 最高速度 (RPM) | float | 200.0 |
-| エンコーダPPR | uint16_t | 1024 |
+| 項目 | 型 | デフォルト値 | 備考 |
+|------|---|-------------|------|
+| PID Kp | float | 1.0 | |
+| PID Ki | float | 0.1 | |
+| PID Kd | float | 0.01 | |
+| 最高速度 (RPM) | float | 200.0 | |
+| エンコーダPPR | uint16_t | 1024 | |
+| 減速比 | float | 1.0 | モータ軸→ホイール軸 |
+| ホイール直径 | float | 0.1 | [m] |
+| トレッド幅 | float | 0.3 | [m] 左右ホイール間距離 |
 
 ### 設定変更方式
 
@@ -247,6 +274,7 @@ private:
 ### MotorController
 
 左右モータの統合制御。PID制御ループを内包。Core1で実行。
+cmd_velから差動二輪キネマティクスでRPMを計算する機能を持つ。
 
 ```cpp
 class MotorController {
@@ -258,17 +286,51 @@ public:
     );
 
     void begin();
-    void setTargetRPM(float left, float right);
+
+    // cmd_velからRPMを計算して設定
+    void setCmdVel(float linear_x, float angular_z);
+
+    // ロボットパラメータ設定（ConfigStorageから読み込み）
+    void setRobotParams(float wheel_diameter, float track_width, float gear_ratio);
+
     void update(float dt);           // 制御ループ（定期呼び出し）
 
-    float getCurrentRPM_L();
+    float getTargetRPM_L();          // cmd_velから計算した目標RPM
+    float getTargetRPM_R();
+    float getCurrentRPM_L();         // エンコーダから計算した現在RPM
     float getCurrentRPM_R();
     long getEncoderCount_L();
     long getEncoderCount_R();
 
 private:
+    // 差動二輪キネマティクス計算
+    void calculateWheelRPM(float linear_x, float angular_z,
+                           float& left_rpm, float& right_rpm);
+
+    float wheel_diameter_;
+    float track_width_;
+    float gear_ratio_;
+    float target_rpm_l_, target_rpm_r_;
     // 各コンポーネントへの参照
 };
+```
+
+**キネマティクス計算:**
+```cpp
+void MotorController::calculateWheelRPM(float linear_x, float angular_z,
+                                         float& left_rpm, float& right_rpm) {
+    float wheel_radius = wheel_diameter_ / 2.0f;
+
+    // 左右ホイールの速度 [m/s]
+    float left_vel  = linear_x - angular_z * track_width_ / 2.0f;
+    float right_vel = linear_x + angular_z * track_width_ / 2.0f;
+
+    // ホイール回転数 [rad/s] → モータRPM
+    // RPM = (vel / (2*PI*r)) * 60 * gear_ratio
+    float rad_to_rpm = 60.0f / (2.0f * PI * wheel_radius) * gear_ratio_;
+    left_rpm  = left_vel * rad_to_rpm;
+    right_rpm = right_vel * rad_to_rpm;
+}
 ```
 
 ### ConfigStorage
@@ -282,7 +344,10 @@ struct RobotConfig {
     float pid_kd;
     float max_rpm;
     uint16_t encoder_ppr;
-    uint8_t checksum;  // 設定有効性確認用
+    float gear_ratio;        // 減速比
+    float wheel_diameter;    // ホイール直径 [m]
+    float track_width;       // トレッド幅 [m]
+    uint8_t checksum;        // 設定有効性確認用
 };
 
 class ConfigStorage {
@@ -328,24 +393,41 @@ namespace HardwareConfig {
 
 ### Core1（リアルタイム処理）
 
-```
-10ms周期（100Hz）ハードウェアタイマー割り込み:
-  1. Mutex取得 → 共有メモリから目標RPM読み込み
-  2. エンコーダからカウント取得
-  3. RPM計算
-  4. PID制御で出力値計算
-  5. モータドライバへPWM出力
-  6. Mutex取得 → 共有メモリにエンコーダカウント・現在RPM書き込み
+```mermaid
+flowchart TD
+    A[10ms周期タイマー割り込み] --> B[Mutex取得]
+    B --> C[共有メモリから<br/>linear_x, angular_z読み込み]
+    C --> D[差動二輪キネマティクス計算<br/>→ 目標RPM]
+    D --> E[エンコーダからカウント取得]
+    E --> F[現在RPM計算]
+    F --> G[PID制御で出力値計算]
+    G --> H[モータドライバへPWM出力]
+    H --> I[Mutex取得]
+    I --> J[共有メモリに書き込み<br/>target_rpm, current_rpm, encoder_count]
+    J --> K[Mutex解放]
 ```
 
 ### Core0（通信処理）
 
-```
-loop():
-  1. PacketSerial.update() - ROS通信処理
-  2. Mutex取得 → 共有メモリからエンコーダカウント読み込み
-  3. フェイルセーフチェック（500ms通信途絶でfailsafe_stop=true）
-  4. 設定モード処理（設定コマンド受信時）
+```mermaid
+flowchart TD
+    A[loop開始] --> B[PacketSerial.update<br/>ROS通信処理]
+    B --> C{MOTOR_COMMAND<br/>受信?}
+    C -->|Yes| D[cmd_vel解析<br/>linear_x, angular_z]
+    D --> E[Mutex取得]
+    E --> F[共有メモリに書き込み]
+    F --> G[Mutex解放]
+    C -->|No| H{他のコマンド?}
+    H -->|GET_CONFIG| I[設定値返信]
+    H -->|SET_CONFIG| J[Flash書き込み]
+    H -->|GET_DEBUG| K[デバッグ情報返信]
+    G --> L[フェイルセーフチェック<br/>500ms通信途絶で停止]
+    I --> L
+    J --> L
+    K --> L
+    H -->|No| L
+    L --> M[レスポンス送信]
+    M --> A
 ```
 
 ## 実装順序
