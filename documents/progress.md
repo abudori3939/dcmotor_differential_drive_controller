@@ -44,8 +44,10 @@
 
 | タスク | ステータス | 備考 |
 |--------|----------|------|
-| MotorController実装 | ⬜ | Core1で実行、キネマティクス計算含む |
-| DifferentialKinematicsテスト | ⬜ | cmd_vel→RPM変換テスト |
+| DifferentialKinematicsテスト | ✅ | 10テストケース（cmd_vel→RPM変換） |
+| DifferentialKinematics実装 | ✅ | キネマティクス計算 |
+| MotorControllerテスト | ✅ | 13テストケース（目標RPM計算、回転優先クランプ） |
+| MotorController実装 | ✅ | ロジック＋ハードウェア統合（実機確認は別途） |
 | SharedMotorData定義 | ⬜ | コア間共有データ（linear_x, angular_z） |
 | main.cpp Core0実装 | ⬜ | cmd_vel受信、新プロトコル対応 |
 | main.cpp Core1実装 | ⬜ | setup1()/loop1() |
@@ -68,9 +70,9 @@
 
 ## 次に着手すべきタスク
 
-**→ Phase 4: MotorController実装**
+**→ Phase 4: SharedMotorData定義、main.cpp実装**
 
-理由: 左右モータの統合制御を実装する。cmd_velから差動二輪キネマティクスでRPMを計算し、PID制御ループを実行する。
+理由: MotorControllerのロジック実装が完了したので、コア間通信とmain.cppのデュアルコア対応を実装する。
 
 ## 完了履歴
 
@@ -99,3 +101,7 @@
 | 2025-12-13 | MotorDriver 実装（clampSpeed, getDirection, calculatePwmDuty） |
 | 2025-12-13 | MotorDriver 反転フラグ追加（差動二輪のモータ取り付け方向対応） |
 | 2025-12-13 | QuadratureEncoder 反転フラグ追加（decodeStateで符号反転） |
+| 2025-12-13 | DifferentialKinematics テスト作成（10テストケース: cmd_vel→RPM変換） |
+| 2025-12-13 | DifferentialKinematics 実装（キネマティクス計算） |
+| 2025-12-13 | MotorController テスト作成（13テストケース: 目標RPM、回転優先クランプ） |
+| 2025-12-13 | MotorController 実装（ロジック＋ハードウェア統合） |
