@@ -44,11 +44,15 @@
 
 | タスク | ステータス | 備考 |
 |--------|----------|------|
-| MotorController実装 | ⬜ | Core1で実行、キネマティクス計算含む |
-| DifferentialKinematicsテスト | ⬜ | cmd_vel→RPM変換テスト |
-| SharedMotorData定義 | ⬜ | コア間共有データ（linear_x, angular_z） |
-| main.cpp Core0実装 | ⬜ | cmd_vel受信、新プロトコル対応 |
-| main.cpp Core1実装 | ⬜ | setup1()/loop1() |
+| DifferentialKinematicsテスト | ✅ | 10テストケース（cmd_vel→RPM変換） |
+| DifferentialKinematics実装 | ✅ | キネマティクス計算 |
+| MotorControllerテスト | ✅ | 13テストケース（目標RPM計算、回転優先クランプ） |
+| MotorController実装 | ✅ | ロジック＋ハードウェア統合（実機確認は別途） |
+| SharedMotorData定義 | ✅ | CmdVelData/MotorStateData分離設計（11テスト） |
+| Protocolライブラリ | ✅ | パケットパース・レスポンス作成（19テスト） |
+| main.cpp Core0実装 | ✅ | 新プロトコル対応、フェイルセーフ |
+| main.cpp Core1実装 | ✅ | setup1()/loop1()、microsフラグ管理 |
+| 実機テスト | ⬜ | `documents/hardware_test.md` 参照 |
 
 ### Phase 5: 設定機能
 
@@ -68,9 +72,12 @@
 
 ## 次に着手すべきタスク
 
-**→ Phase 4: MotorController実装**
+**→ Phase 4: 実機テスト**
 
-理由: 左右モータの統合制御を実装する。cmd_velから差動二輪キネマティクスでRPMを計算し、PID制御ループを実行する。
+理由: main.cpp実装完了。ユニットテストでカバーできない部分（デュアルコア、割り込み、通信）を実機確認する。
+
+手順: `documents/hardware_test.md` 参照
+ツール: `tools/test_protocol.py`
 
 ## 完了履歴
 
@@ -99,3 +106,13 @@
 | 2025-12-13 | MotorDriver 実装（clampSpeed, getDirection, calculatePwmDuty） |
 | 2025-12-13 | MotorDriver 反転フラグ追加（差動二輪のモータ取り付け方向対応） |
 | 2025-12-13 | QuadratureEncoder 反転フラグ追加（decodeStateで符号反転） |
+| 2025-12-13 | DifferentialKinematics テスト作成（10テストケース: cmd_vel→RPM変換） |
+| 2025-12-13 | DifferentialKinematics 実装（キネマティクス計算） |
+| 2025-12-13 | MotorController テスト作成（13テストケース: 目標RPM、回転優先クランプ） |
+| 2025-12-13 | MotorController 実装（ロジック＋ハードウェア統合） |
+| 2025-12-13 | SharedMotorData 定義（CmdVelData/MotorStateData分離、11テスト） |
+| 2025-12-14 | Protocolライブラリ作成（19テスト: パース・レスポンス作成） |
+| 2025-12-14 | main.h作成（設定構造体、extern宣言） |
+| 2025-12-14 | main.cpp Core0/Core1実装（デュアルコア構成完了） |
+| 2025-12-14 | hardware_test.md作成（実機テスト手順） |
+| 2025-12-14 | tools/test_protocol.py作成（通信テストスクリプト） |
