@@ -89,6 +89,107 @@ pio run -e pico -t upload
 pio device monitor
 ```
 
+## デバッグ（Debug Probe使用）
+
+Raspberry Pi Debug Probe（公式）を使用したデバッグ環境。
+
+### 接続構成
+
+```
+開発PC
+├── USB1: Pico本体 ────────> ROS通信（PacketSerial/COBS）
+└── USB2: Debug Probe ─────> デバッグログ（Pico Serial1経由）
+                      ─────> SWDデバッグ（ブレークポイント等）
+```
+
+### 配線
+
+```
+Debug Probe              Pico
+-----------              ----
+[SWD側]
+  SWCLK      ─────────>  SWCLK（白リード線マーク側）
+  SWDIO      ─────────>  SWDIO
+  GND        ─────────>  GND
+
+[UART側]
+  UART RX    <─────────  GPIO0（Pico TX = Serial1出力）
+  UART TX    ─────────>  GPIO1（Pico RX）
+  GND        ─────────>  GND
+```
+
+### デバッグビルド
+
+```bash
+# デバッグ用ビルド（DEBUG_BUILD有効、最適化なし）
+pio run -e pico_debug
+
+# Debug Probe経由で書き込み
+pio run -e pico_debug -t upload
+```
+
+### デバッグログ確認
+
+PicoのSerial1（GPIO0）から出力されたログが、Debug ProbeのUART経由でPCに届く。
+
+```bash
+# ターミナル1: ROS通信（通常通り実行）
+ros2 launch your_package robot.launch.py
+
+# ターミナル2: デバッグログ確認（Debug Probeのポート）
+pio device monitor --port /dev/cu.usbmodem*   # macOS
+pio device monitor --port /dev/ttyACM1        # Linux
+```
+
+ポート確認:
+```bash
+ls /dev/cu.usb*     # macOS
+ls /dev/ttyACM*     # Linux
+```
+
+### デバッグログの使い方
+
+`DebugLogger.h`を使用。本番ビルド（`pico`環境）では自動的に無効化される。
+
+```cpp
+#include "DebugLogger.h"
+
+void setup() {
+    DEBUG_INIT();  // Serial1初期化
+    DEBUG_PRINTLN("セットアップ開始");
+}
+
+void loop() {
+    DEBUG_PRINTF("RPM: L=%.2f R=%.2f\n", rpmL, rpmR);
+    DEBUG_PID(targetRpm, measuredRpm, output);
+    DEBUG_ENCODER(countL, countR, rpmL, rpmR);
+}
+```
+
+### 利用可能なマクロ
+
+| マクロ | 用途 |
+|--------|------|
+| `DEBUG_INIT()` | Serial1初期化（setup()内で呼ぶ） |
+| `DEBUG_PRINT(msg)` | 改行なし出力 |
+| `DEBUG_PRINTLN(msg)` | 改行あり出力 |
+| `DEBUG_PRINTF(...)` | フォーマット出力 |
+| `DEBUG_INFO/WARN/ERROR(msg)` | ログレベル付き出力 |
+| `DEBUG_PID(target, measured, output)` | PID制御デバッグ |
+| `DEBUG_ENCODER(cL, cR, rpmL, rpmR)` | エンコーダデバッグ |
+| `DEBUG_MOTOR(dutyL, dutyR)` | モータ出力デバッグ |
+
+### SWDデバッグ（ブレークポイント）
+
+VS Code + PlatformIO拡張でブレークポイントデバッグが可能。
+
+```bash
+# デバッグセッション開始
+pio debug -e pico_debug
+```
+
+または、VS Codeの「Run and Debug」からデバッグ開始。
+
 ## 設定変更
 
 PIDゲインや最高速度等の設定は、ROS側から `SET_CONFIG` リクエスト（0x04）を送信することでFlashに保存される。
