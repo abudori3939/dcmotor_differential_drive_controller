@@ -78,5 +78,7 @@
 | 2025-12-11 | progress.md作成 |
 | 2025-12-11 | protocol.md作成（リクエスト・レスポンス型通信仕様） |
 | 2025-12-11 | development.md更新 |
-| 2025-12-12 | HardwareConfig作成 |
-| 2025-12-12 | CLAUDE.md コーディング規約追加（Arduinoスタイル） |
+| 2025-12-13 | HardwareConfig作成 |
+| 2025-12-13 | CLAUDE.md コーディング規約追加（Arduinoスタイル） |
+| 2025-12-13 | DebugLogger追加（Debug Probe対応） |
+| 2025-12-13 | pico_debug環境追加（platformio.ini） |
