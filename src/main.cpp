@@ -1,158 +1,377 @@
+/**
+ * @file main.cpp
+ * @brief 汎用DCモータ差動二輪コントローラ ファームウェア
+ *
+ * デュアルコア構成:
+ * - Core0: ROS通信、コマンド解析、フェイルセーフ
+ * - Core1: エンコーダ読み取り、PID制御、PWM出力
+ */
+
 #include <Arduino.h>
-#include "CugoSDK.h"
-#include "MotorLogic.h"
-#include "SerialProtocol.h"
-#include <Servo.h>
 #include <PacketSerial.h>
 
-uint8_t packetBinaryBufferSerial[SERIAL_HEADER_SIZE + SERIAL_BIN_BUFF_SIZE];
+#include "main.h"
+#include "Protocol.h"
+#include "MotorController.h"
+#include "QuadratureEncoder.h"
+#include "MotorDriver.h"
+#include "PidController.h"
+
+#ifdef DEBUG_BUILD
+#include "DebugLogger.h"
+#endif
+
+// =============================================================================
+// グローバル変数定義
+// =============================================================================
+
+// 共有データ（コア間通信）
+volatile CmdVelData cmdVelData;
+volatile MotorStateData motorStateData;
+
+// 設定・ステータス
+RobotConfig config;
+SystemStatus systemStatus;
+
+// フェイルセーフ
+unsigned long lastCommandTimeMs = 0;
+
+// Core0用
 PacketSerial packetSerial;
 
-// 受信バッファ
-#define RECV_HEADER_PRODUCT_ID_PTR 0  // ヘッダ プロダクトID
-#define RECV_HEADER_CHECKSUM_PTR 6    // ヘッダ チェックサム
-#define TARGET_RPM_L_PTR 0            // 左モータ目標RPM
-#define TARGET_RPM_R_PTR 4            // 右モータ目標RPM
+// Core1用ハードウェアオブジェクト（グローバル直接宣言）
+QuadratureEncoder encoderL(
+    HardwareConfig::ENCODER_L_A,
+    HardwareConfig::ENCODER_L_B,
+    HardwareConfig::Defaults::ENCODER_PPR
+);
+QuadratureEncoder encoderR(
+    HardwareConfig::ENCODER_R_A,
+    HardwareConfig::ENCODER_R_B,
+    HardwareConfig::Defaults::ENCODER_PPR
+);
 
-// 送信バッファ
-#define SEND_ENCODER_L_PTR 0  // 左エンコーダ回転数
-#define SEND_ENCODER_R_PTR 4  // 右エンコーダ回転数
+// 右モータは反転（差動二輪のため）
+MotorDriver driverL(
+    HardwareConfig::MOTOR_L_DIR,
+    HardwareConfig::MOTOR_L_PWM,
+    false  // 反転なし
+);
+MotorDriver driverR(
+    HardwareConfig::MOTOR_R_DIR,
+    HardwareConfig::MOTOR_R_PWM,
+    true   // 反転あり
+);
 
-unsigned long long current_time = 0, prev_time_10ms = 0, prev_time_100ms, prev_time_1000ms;  // オーバーフローしても問題ないが64bit確保
+PidController pidL(
+    HardwareConfig::Defaults::PID_KP,
+    HardwareConfig::Defaults::PID_KI,
+    HardwareConfig::Defaults::PID_KD
+);
+PidController pidR(
+    HardwareConfig::Defaults::PID_KP,
+    HardwareConfig::Defaults::PID_KI,
+    HardwareConfig::Defaults::PID_KD
+);
 
-// FAIL SAFE COUNT
-int COM_FAIL_COUNT = 0;
+MotorController motorController(
+    encoderL, encoderR,
+    driverL, driverR,
+    pidL, pidR,
+    0.1f,   // wheelDiameter [m]
+    0.3f,   // trackWidth [m]
+    HardwareConfig::Defaults::GEAR_RATIO,
+    HardwareConfig::Defaults::MAX_RPM
+);
 
-void stop_motor_immediately() {
-  cugo_rpm_direct_instructions(0, 0);
+// =============================================================================
+// プロトコルハンドラ
+// =============================================================================
+
+/**
+ * MOTOR_COMMANDハンドラ
+ */
+void handleMotorCommand(const Protocol::ParsedRequest& req) {
+    // 共有メモリに書き込み
+    cmdVelData.linearX = req.motorCommand.linearX;
+    cmdVelData.angularZ = req.motorCommand.angularZ;
+    cmdVelData.failsafeStop = false;
+
+    // フェイルセーフタイマーリセット
+    lastCommandTimeMs = millis();
+    systemStatus.flags &= ~Protocol::STATUS_FAILSAFE;
+
+    // レスポンス作成
+    Protocol::MotorCommandResponse resp;
+    resp.encoderCountL = motorStateData.encoderCountL;
+    resp.encoderCountR = motorStateData.encoderCountR;
+    resp.status = systemStatus.flags;
+
+    uint8_t buffer[32];
+    uint8_t length = Protocol::createMotorCommandResponse(resp, buffer, sizeof(buffer));
+    packetSerial.send(buffer, length);
 }
 
-void check_failsafe() {
-  // 100msごとに通信の有無を確認
-  // 5回連続(0.5秒)ROSからの通信が来なかった場合、直ちにロボットを停止する
-  COM_FAIL_COUNT++;
-  if (COM_FAIL_COUNT > 5) {
-    stop_motor_immediately();
-  }
+/**
+ * GET_VERSIONハンドラ
+ */
+void handleGetVersion() {
+    Protocol::VersionResponse resp;
+    resp.major = HardwareConfig::Version::MAJOR;
+    resp.minor = HardwareConfig::Version::MINOR;
+    resp.patch = HardwareConfig::Version::PATCH;
+
+    uint8_t buffer[16];
+    uint8_t length = Protocol::createVersionResponse(resp, buffer, sizeof(buffer));
+    packetSerial.send(buffer, length);
 }
 
-void job_10ms() {
-  // nothing
+/**
+ * GET_STATUSハンドラ
+ */
+void handleGetStatus() {
+    Protocol::StatusResponse resp;
+    resp.status = systemStatus.flags;
+    resp.errorCode = systemStatus.lastErrorCode;
+    resp.commErrorCount = systemStatus.commErrorCount;
+    resp.uptimeMs = millis();
+
+    uint8_t buffer[32];
+    uint8_t length = Protocol::createStatusResponse(resp, buffer, sizeof(buffer));
+    packetSerial.send(buffer, length);
 }
 
-void job_100ms() {
-  check_failsafe();
-  // エンコーダカウントをSDKから取得
-  ld2_get_cmd();
+/**
+ * GET_CONFIGハンドラ
+ */
+void handleGetConfig() {
+    Protocol::ConfigData resp;
+    resp.pidKp = config.pidKp;
+    resp.pidKi = config.pidKi;
+    resp.pidKd = config.pidKd;
+    resp.maxRpm = config.maxRpm;
+    resp.encoderPpr = config.encoderPpr;
+    resp.gearRatio = config.gearRatio;
+    resp.wheelDiameter = config.wheelDiameter;
+    resp.trackWidth = config.trackWidth;
+
+    uint8_t buffer[64];
+    uint8_t length = Protocol::createConfigResponse(resp, buffer, sizeof(buffer));
+    packetSerial.send(buffer, length);
 }
 
-void job_1000ms() {
-  //nothing
+/**
+ * SET_CONFIGハンドラ
+ * TODO: ConfigStorage実装後にFlash保存を追加
+ */
+void handleSetConfig(const Protocol::ParsedRequest& req) {
+    // 設定値を更新
+    config.pidKp = req.setConfig.pidKp;
+    config.pidKi = req.setConfig.pidKi;
+    config.pidKd = req.setConfig.pidKd;
+    config.maxRpm = req.setConfig.maxRpm;
+    config.encoderPpr = req.setConfig.encoderPpr;
+    config.gearRatio = req.setConfig.gearRatio;
+    config.wheelDiameter = req.setConfig.wheelDiameter;
+    config.trackWidth = req.setConfig.trackWidth;
+
+    // TODO: PIDゲインをCore1のPIDControllerに反映
+
+    uint8_t buffer[16];
+    uint8_t length = Protocol::createSetConfigResponse(
+        Protocol::CONFIG_RESULT_SUCCESS, buffer, sizeof(buffer));
+    packetSerial.send(buffer, length);
 }
 
-void set_motor_cmd_binary(uint8_t* reciev_buf, int size, float max_rpm) {
-  if (size > 0) {
-    MotorRPM reciev_rpm, clamped_rpm;
-    reciev_rpm.left = read_float_from_buf(reciev_buf, SERIAL_HEADER_SIZE, TARGET_RPM_L_PTR);
-    reciev_rpm.right = read_float_from_buf(reciev_buf, SERIAL_HEADER_SIZE, TARGET_RPM_R_PTR);
+/**
+ * GET_DEBUG_OUTPUTハンドラ
+ */
+void handleGetDebugOutput() {
+    Protocol::DebugOutputResponse resp;
+    resp.encoderCountL = motorStateData.encoderCountL;
+    resp.encoderCountR = motorStateData.encoderCountR;
+    resp.targetRpmL = motorStateData.targetRpmL;
+    resp.targetRpmR = motorStateData.targetRpmR;
+    resp.currentRpmL = motorStateData.currentRpmL;
+    resp.currentRpmR = motorStateData.currentRpmR;
+    resp.pwmDutyL = 0.0f;  // TODO: MotorDriverから取得
+    resp.pwmDutyR = 0.0f;
 
-    // 物理的最高速以上のときは、モータの最高速に丸める
-    bool rotation_clanp_logic = true;  // 回転成分を優先した丸めアルゴリズムを有効化。falseにすると上限rpmだけに注目したシンプルなロジックに切り替わる。
-    if (rotation_clanp_logic) {        // 回転成分を優先して残し、直進方向を減らす方法で速度上限以上の速度を丸める。曲がりきれず激突することを防止する。
-      clamped_rpm = clamp_rpm_rotation_priority(reciev_rpm, max_rpm);
-    } else {
-      clamped_rpm = clamp_rpm_simple(reciev_rpm, max_rpm);
-    }
-    cugo_rpm_direct_instructions(clamped_rpm.left, clamped_rpm.right);
-    /*  モータに指令値を無事セットできたら、通信失敗カウンタをリセット
-        毎回リセットすることで通常通信できる。
-        10Hzで通信しているので、100msJOBでカウンタアップ。
-    */
-    COM_FAIL_COUNT = 0;
-  } else {
-    cugo_rpm_direct_instructions(0.0, 0.0);
-  }
+    uint8_t buffer[64];
+    uint8_t length = Protocol::createDebugOutputResponse(resp, buffer, sizeof(buffer));
+    packetSerial.send(buffer, length);
 }
 
+/**
+ * パケット受信コールバック
+ */
 void onSerialPacketReceived(const uint8_t* buffer, size_t size) {
-  uint8_t tempBuffer[size];
-  memcpy(tempBuffer, buffer, size);
-  // バッファにたまったデータを抜き出して制御に適用
-  uint16_t product_id = read_uint16_t_from_header(tempBuffer, SERIAL_HEADER_SIZE, RECV_HEADER_PRODUCT_ID_PTR);
-  float max_rpm = check_max_rpm(product_id);
-  // チェックサムの確認
-  uint16_t recv_checksum = read_uint16_t_from_header(tempBuffer, SERIAL_HEADER_SIZE, RECV_HEADER_CHECKSUM_PTR);
-  // ボディ部分へのポインタを取得
-  const uint8_t* body_ptr = tempBuffer + SERIAL_HEADER_SIZE;
-  // ボディ部分(64バイト)だけを渡してチェックサムを計算
-  uint16_t calc_checksum = calculate_checksum(body_ptr, SERIAL_BIN_BUFF_SIZE);
+    Protocol::ParsedRequest req;
+    Protocol::ParseResult result = Protocol::parseRequest(buffer, size, req);
 
-  if (recv_checksum != calc_checksum) {
-    //Serial.println("Packet integrity check failed");
-  } else {
-    set_motor_cmd_binary(tempBuffer, size, max_rpm);
-  }
+    if (result != Protocol::PARSE_OK) {
+        systemStatus.commErrorCount++;
+        switch (result) {
+            case Protocol::PARSE_ERROR_SIZE:
+                systemStatus.lastErrorCode = Protocol::ERROR_PAYLOAD;
+                break;
+            case Protocol::PARSE_ERROR_CHECKSUM:
+                systemStatus.lastErrorCode = Protocol::ERROR_CHECKSUM;
+                break;
+            case Protocol::PARSE_ERROR_INVALID_TYPE:
+                systemStatus.lastErrorCode = Protocol::ERROR_INVALID_COMMAND;
+                break;
+            default:
+                break;
+        }
+        return;
+    }
 
-  // 送信ボディの作成
-  uint8_t send_body[SERIAL_BIN_BUFF_SIZE];
-  // 送信ボディの初期化
-  memset(send_body, 0, sizeof(send_body));
-
-  // ボディへ送信データの書き込み
-  write_int_to_buf(send_body, SEND_ENCODER_L_PTR, cugo_current_count_L);
-  write_int_to_buf(send_body, SEND_ENCODER_R_PTR, cugo_current_count_R);
-
-  // チェックサムの計算
-  uint16_t checksum = calculate_checksum(send_body, SERIAL_BIN_BUFF_SIZE);
-  uint16_t send_len = SERIAL_HEADER_SIZE + SERIAL_BIN_BUFF_SIZE;
-  // 送信ヘッダの作成
-  uint16_t localPort = 8888;
-  uint16_t send_header[4] = { localPort, 8888, send_len, checksum };
-
-  // 送信パケットの作成
-  uint8_t send_packet[send_len];
-  create_serial_packet(send_packet, send_header, send_body);
-  packetSerial.send(send_packet, send_len);
+    // リクエストタイプに応じて処理
+    switch (req.requestType) {
+        case Protocol::REQUEST_MOTOR_COMMAND:
+            handleMotorCommand(req);
+            break;
+        case Protocol::REQUEST_GET_VERSION:
+            handleGetVersion();
+            break;
+        case Protocol::REQUEST_GET_STATUS:
+            handleGetStatus();
+            break;
+        case Protocol::REQUEST_GET_CONFIG:
+            handleGetConfig();
+            break;
+        case Protocol::REQUEST_SET_CONFIG:
+            handleSetConfig(req);
+            break;
+        case Protocol::REQUEST_GET_DEBUG_OUTPUT:
+            handleGetDebugOutput();
+            break;
+        default:
+            break;
+    }
 }
+
+/**
+ * フェイルセーフチェック
+ */
+void checkFailsafe() {
+    unsigned long elapsed = millis() - lastCommandTimeMs;
+    if (elapsed > HardwareConfig::FAILSAFE_TIMEOUT_MS) {
+        systemStatus.flags |= Protocol::STATUS_FAILSAFE;
+        cmdVelData.linearX = 0.0f;
+        cmdVelData.angularZ = 0.0f;
+        cmdVelData.failsafeStop = true;
+    }
+}
+
+// =============================================================================
+// Core0: メインコア（ROS通信）
+// =============================================================================
 
 void setup() {
-  //プロポでラジコンモード切替時に初期化したい場合はtrue、初期化しない場合はfalse
-  cugo_switching_reset = false;
+    // 共有データ初期化
+    initCmdVelData(&cmdVelData);
+    initMotorStateData(&motorStateData);
 
-  cugo_init();  //初期設定
-  packetSerial.begin(115200);
-  packetSerial.setStream(&Serial);
-  packetSerial.setPacketHandler(&onSerialPacketReceived);
+    // PacketSerial初期化
+    packetSerial.begin(115200);
+    packetSerial.setStream(&Serial);
+    packetSerial.setPacketHandler(&onSerialPacketReceived);
 
-  // Serialバッファをカラにしてから実行を開始する
-  delay(100);
-  while (Serial.available() > 0) {
-    Serial.read();
-  }
+    // フェイルセーフタイマー初期化
+    lastCommandTimeMs = millis();
+
+#ifdef DEBUG_BUILD
+    DEBUG_INIT();
+    DEBUG_PRINTLN("Core0: Setup complete");
+#endif
+
+    // Serialバッファをクリア
+    delay(100);
+    while (Serial.available() > 0) {
+        Serial.read();
+    }
 }
 
 void loop() {
-  current_time = micros();
+    static unsigned long prevTimeUs = 0;
+    unsigned long currentUs = micros();
 
-  if (current_time - prev_time_10ms > 10000) {
-    job_10ms();
-    prev_time_10ms = current_time;
-  }
+    // PacketSerial更新（受信処理）- 毎ループ実行
+    packetSerial.update();
 
-  if (current_time - prev_time_100ms > 100000) {
-    job_100ms();
-    prev_time_100ms = current_time;
-  }
+    // オーバーフローチェック
+    if (packetSerial.overflow()) {
+        systemStatus.commErrorCount++;
+    }
 
-  if (current_time - prev_time_1000ms > 1000000) {
-    job_1000ms();
-    prev_time_1000ms = current_time;
-  }
+    // 100msごとの処理
+    if (currentUs - prevTimeUs >= 100000) {
+        prevTimeUs = currentUs;
+        checkFailsafe();
+    }
+}
 
-  //// シリアル通信でコマンドを受信するとき
-  packetSerial.update();
-  // 受信バッファのオーバーフローチェック(optional).
-  if (packetSerial.overflow()) {
-    //Serial.print("serial packet overflow!!");
-  }
+// =============================================================================
+// Core1: リアルタイムコア（モータ制御）
+// =============================================================================
+
+void setup1() {
+    // PID出力リミット設定
+    pidL.setOutputLimits(-1.0f, 1.0f);
+    pidR.setOutputLimits(-1.0f, 1.0f);
+
+    // ハードウェア初期化
+    encoderL.begin();
+    encoderR.begin();
+    driverL.begin();
+    driverR.begin();
+
+#ifdef DEBUG_BUILD
+    DEBUG_PRINTLN("Core1: Setup complete");
+#endif
+}
+
+void loop1() {
+    static unsigned long prevTimeUs = 0;
+    unsigned long currentUs = micros();
+
+    // 制御周期（10ms = 100Hz）
+    if (currentUs - prevTimeUs >= HardwareConfig::CONTROL_PERIOD_US) {
+        float dt = (currentUs - prevTimeUs) / 1000000.0f;
+        prevTimeUs = currentUs;
+
+        // 共有メモリからcmd_velを読み込み
+        float linearX = cmdVelData.linearX;
+        float angularZ = cmdVelData.angularZ;
+        bool failsafe = cmdVelData.failsafeStop;
+
+        // フェイルセーフ時は停止
+        if (failsafe) {
+            motorController.stop();
+        } else {
+            // cmd_velを設定して制御ループ実行
+            motorController.setCmdVel(linearX, angularZ);
+            motorController.update(dt);
+        }
+
+        // 共有メモリに状態を書き込み
+        motorStateData.encoderCountL = motorController.getEncoderCountL();
+        motorStateData.encoderCountR = motorController.getEncoderCountR();
+        motorStateData.targetRpmL = motorController.getTargetRpmL();
+        motorStateData.targetRpmR = motorController.getTargetRpmR();
+        motorStateData.currentRpmL = motorController.getCurrentRpmL();
+        motorStateData.currentRpmR = motorController.getCurrentRpmR();
+
+#ifdef DEBUG_BUILD
+        static int debugCounter = 0;
+        if (++debugCounter >= 100) {  // 1秒ごと
+            DEBUG_PRINTF("RPM: L=%.1f/%.1f R=%.1f/%.1f\n",
+                motorStateData.currentRpmL, motorStateData.targetRpmL,
+                motorStateData.currentRpmR, motorStateData.targetRpmR);
+            debugCounter = 0;
+        }
+#endif
+    }
 }
